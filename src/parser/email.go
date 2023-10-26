@@ -3,15 +3,21 @@ package parser
 import (
 	"bufio"
 	"os"
-	"strings"
+
+	"github.com/dhliv/EmailIndexing/src/fast_strings"
 )
 
 var emailFields []string = []string{"Message-ID:", "Date:", "From:", "To:", "Subject:", "Mime-Version:",
 																		"Content-Type:", "Content-Transfer-Encoding:", "X-From:", "X-To:",
 																		"X-cc:", "X-bcc:", "X-Folder:", "X-Origin:", "X-FileName:", "Body"}
+var emailFieldsCurated []string = []string{"Message-ID", "Date", "From", "To", "Subject", "Mime-Version",
+																						"Content-Type", "Content-Transfer-Encoding", "X-From", "X-To",
+																						"X-cc", "X-bcc", "X-Folder", "X-Origin", "X-FileName", "Body"}
+
+var endline string = "\n"
 
 type EmailParser struct {
-	content string
+	content *fast_strings.FastString
 	fieldsObtained map[string]*string
 	emailFieldPosition int
 	fileScanner *bufio.Scanner
@@ -21,7 +27,7 @@ type EmailParser struct {
 // EmailParser constructor. Creates a parser assigned to file.
 func NewEmailParser(file *os.File) *EmailParser {
 	return &EmailParser{
-		content: "",
+		content: fast_strings.NewFastString(),
 		fieldsObtained: make(map[string]*string),
 		emailFieldPosition: 0,
 		fileScanner: bufio.NewScanner(file),
@@ -42,38 +48,40 @@ func (ep *EmailParser) parseHeaders() {
 	ep.parseFirstField()
 	for ep.fileScanner.Scan() {
 		s := ep.fileScanner.Text()
+		fs := fast_strings.NewFastString()
 
 		if len(s) == 0 { // has only endline
 			break
 		}
 
-		cuttedS, hasEmailField := strings.CutPrefix(s, emailFields[ep.emailFieldPosition])
+		fs.Concat(&s)
+		hasEmailField := fs.CutPrefix(&emailFields[ep.emailFieldPosition])
 		if !hasEmailField {
-			if ep.content != "" {
-				ep.content += "\n"
+			if ep.content.Size() != 0 {
+				ep.content.Concat(&endline)
 			}
 
-			ep.content += cuttedS
+			ep.content.ConcatFastString(fs)
 			continue
 		}
 
 		ep.addEmailField()
-		ep.content = cuttedS
+		ep.content = fs
 	}
 	
 	ep.addEmailField()
-	ep.content = ""
+	ep.content = fast_strings.NewFastString()
 }
 
 
 func (ep *EmailParser) parseBody() {
 	for ep.fileScanner.Scan() {
 		s := ep.fileScanner.Text()
-		if ep.content != "" {
-			ep.content += "\n"
+		if ep.content.Size() != 0 {
+			ep.content.Concat(&endline)
 		}
 
-		ep.content += strings.Trim(s, " ")
+		ep.content.Concat(&s)
 	}
 
 	ep.addEmailField()
@@ -81,9 +89,8 @@ func (ep *EmailParser) parseBody() {
 
 
 func (ep *EmailParser) addEmailField() {
-	emailField, _ := strings.CutSuffix(emailFields[ep.emailFieldPosition - 1], ":")
-	s := strings.Trim(ep.content, " ")
-	ep.fieldsObtained[emailField] = &s
+	emailField := &emailFieldsCurated[ep.emailFieldPosition - 1]
+	ep.fieldsObtained[*(emailField)] = ep.content.GetString()
 	ep.emailFieldPosition++
 }
 
@@ -91,6 +98,9 @@ func (ep *EmailParser) addEmailField() {
 func (ep *EmailParser) parseFirstField() {
 	ep.fileScanner.Scan()
 	s := ep.fileScanner.Text()
-	ep.content, _ = strings.CutPrefix(s, emailFields[ep.emailFieldPosition])
+	fs := fast_strings.NewFastString()
+	fs.Concat(&s)
+	fs.CutPrefix(&emailFields[ep.emailFieldPosition])
+	ep.content = fs
 	ep.emailFieldPosition++
 }
